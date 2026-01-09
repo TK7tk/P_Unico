@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #B78791;
+  --color-primary-light: #D4A8B0;
+  --color-primary-dark: #916C73;
+  --color-secondary: #F9E6DF;
+  --color-bg: #FFFFFF;
+  --color-bg-light: #FFF4F0;
+  --color-text: #1A1A1A;
+  --color-text-light: #666666;
+  --color-border: #D4A8B0;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-serif font-bold text-primary;
+  }
+}
+
+.dusty-card {
+  @apply bg-white border border-border rounded-lg shadow-sm overflow-hidden;
+}
+
+.dusty-button {
+  @apply px-4 py-2 bg-primary text-white font-bold rounded-md hover:bg-primary-dark transition-colors;
+}
+
+.dusty-input {
+  @apply w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-light;
+}
+

@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Board {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  category    String
+  displayOrder Int     @default(0)
+  threads     Thread[]
+  createdAt   DateTime @default(now())
+}
+
+model Thread {
+  id            String   @id @default(cuid())
+  title         String
+  board         Board    @relation(fields: [boardId], references: [id])
+  boardId       String
+  posts         Post[]
+  status        String   @default("active") // active, locked, archived
+  lastUpdatedAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  number    Int
+  name      String   @default("名無しさん")
+  email     String?
+  content   String
+  ipHash    String
+  thread    Thread   @relation(fields: [threadId], references: [id])
+  threadId  String
+  createdAt DateTime @default(now())
+}
+
