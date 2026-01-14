@@ -1,217 +1,1061 @@
-# Claude Code プロジェクト構成 完全ガイド
-## GitHub管理を前提とした設計
+# Claude Code 完全ガイド
+## プロジェクト構成・ヘッドレスモード・MCP・SDK
 
-**作成日**: 2026-01-12
+**作成日**: 2026-01-13
 **対象者**: 文系ビジネスマン〜エンジニアまで
 
 ---
 
-# 第1部：全体像を理解する
+# 第1部：全体アーキテクチャ
 
-## 1. Claude Codeを「会社」に例えると
+## 1. Claude Codeの3層構造
 
-Claude Codeの構成を理解するために、**会社組織**に例えて説明します。
+Claude Codeは「**対話層**」「**自動化層**」「**拡張層**」の3層で構成されています。
 
-| Claude Code の概念 | 会社に例えると | 役割 |
-|-------------------|--------------|------|
-| **グローバル設定** (`~/.claude/`) | 本社のルール | 全社員・全部署に適用される規則 |
-| **プロジェクト設定** (`.claude/`) | 部署のルール | その部署だけに適用される規則 |
-| **CLAUDE.md** | 業務マニュアル | 「どう仕事をするか」の指針 |
-| **settings.json** | 権限規定 | 「何ができて、何ができないか」 |
-| **Commands** | 定型業務の手順書 | 「この書類を出して」と言われたらやること |
-| **Skills** | 専門知識データベース | 必要な時に自動で参照される知識 |
-| **Subagents** | 派遣される専門家 | 特定の仕事を任せる独立したスタッフ |
-| **Plugins** | 外部委託パッケージ | 専門機能をまとめた外部サービス |
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Claude Code アーキテクチャ                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  【第1層：対話層】ユーザーとの直接対話                               │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  CLI (ターミナル)  ←→  CLAUDE.md (プロジェクトルール)         │   │
+│  │       ↓                     ↓                              │   │
+│  │  Commands (手動)      Skills (自動)    Subagents (並列)     │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                              ↓                                     │
+│  【第2層：自動化層】非対話型・プログラマブル                          │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  Headless Mode         Agent SDK           Hooks            │   │
+│  │  (CI/CD向け)          (Python/TS)         (ライフサイクル)   │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                              ↓                                     │
+│  【第3層：拡張層】外部連携・パッケージ化                              │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │    MCP Servers            Plugins           GitHub Actions   │   │
+│  │  (外部ツール連携)       (機能パッケージ)     (ワークフロー)    │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## 2. 構成要素の分類マトリクス
+
+| 要素 | 呼び出し方 | 実行タイミング | 主な用途 | 会社で例えると |
+|-----|----------|--------------|---------|--------------|
+| **CLAUDE.md** | 自動読込 | セッション開始時 | プロジェクトルール定義 | 業務マニュアル |
+| **settings.json** | 自動適用 | 常時 | 権限・設定管理 | 権限規定 |
+| **Commands** | `/command` | ユーザー指示時 | 定型作業の自動化 | 「この書類を作って」 |
+| **Skills** | 自動 | 会話内容に応じて | 専門知識の提供 | 必要時に参照する専門書 |
+| **Subagents** | Task tool | Claudeが判断 | 並列・重い作業 | 別部署への依頼 |
+| **Hooks** | 自動 | ライフサイクルイベント | 決定論的処理 | 自動チェックシステム |
+| **Plugins** | インストール | 機能単位 | 機能パッケージ | 外部委託パッケージ |
+| **MCP** | 設定後自動 | ツール呼び出し時 | 外部システム連携 | 取引先API |
 
 ---
 
-## 2. 構成要素の親子関係と独立関係
-
-### 親子関係（階層構造）を持つもの
+## 3. 設定ファイルの階層と継承
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  【階層構造】上位が下位に影響を与える                           │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ~/.claude/CLAUDE.md        ← 全プロジェクトに適用（本社方針）  │
-│       ↓ 継承                                                │
-│  ./CLAUDE.md                ← プロジェクトに適用（部署方針）    │
-│       ↓ 継承                                                │
-│  ./frontend/CLAUDE.md       ← サブディレクトリに適用（課の方針）│
-│       ↓ 上書き                                               │
-│  ./CLAUDE.local.md          ← 個人設定（個人の好み）           │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│  settings.json も同様の階層構造                              │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ~/.claude/settings.json     ← 全プロジェクト共通設定         │
-│       ↓                                                     │
-│  .claude/settings.json       ← プロジェクト設定（チーム共有）  │
-│       ↓                                                     │
-│  .claude/settings.local.json ← 個人設定（Git非管理）          │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  【設定の優先順位】下位が上位を上書き                                 │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  1. ~/.claude/CLAUDE.md              ← グローバル（全プロジェクト）  │
+│       ↓ 継承                                                       │
+│  2. ./CLAUDE.md                      ← プロジェクト（チーム共有）    │
+│       ↓ 継承                                                       │
+│  3. ./frontend/CLAUDE.md             ← サブディレクトリ              │
+│       ↓ 上書き                                                     │
+│  4. ./CLAUDE.local.md                ← 個人設定（Git除外）          │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  【settings.json の階層】                                           │
+│                                                                     │
+│  ~/.claude/settings.json             ← ユーザー設定                 │
+│       ↓                                                            │
+│  .claude/settings.json               ← プロジェクト設定（チーム共有）│
+│       ↓                                                            │
+│  .claude/settings.local.json         ← 個人設定（Git除外）          │
+│                                                                     │
+│  ※ managed-settings.json は企業ポリシーとして上書き不可             │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 独立関係を持つもの
+**権限チェック順序**: `deny` → `allow` → `ask`（denyが最優先）
+
+---
+
+## 4. Scripts と各構成要素の関係
+
+Scriptsは Claude Code の各構成要素と**横断的に連携**する重要な要素です。
+
+### Scripts の役割マップ
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  【独立構造】それぞれが独立して機能する                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌───────────┐  ┌───────────┐  ┌───────────┐               │
-│  │ Commands  │  │  Skills   │  │ Subagents │               │
-│  │ (手動)    │  │ (自動)    │  │ (独立)    │               │
-│  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘               │
-│        │              │              │                      │
-│        └──────────────┴──────────────┘                      │
-│                       ↓                                     │
-│              【連携可能】                                    │
-│        Subagentsは Skills や Commands を                    │
-│        利用することができる                                   │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Scripts と Claude Code の関係図                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   ┌─────────────┐                                                          │
+│   │   scripts/  │ ←── プロジェクトのスクリプト格納フォルダ                   │
+│   └──────┬──────┘                                                          │
+│          │                                                                  │
+│   ┌──────┴──────────────────────────────────────────────────────┐          │
+│   │                                                              │          │
+│   ▼                    ▼                    ▼                   ▼          │
+│ ┌────────────┐   ┌────────────┐   ┌────────────┐   ┌────────────┐         │
+│ │   Hooks    │   │   Skills   │   │  Commands  │   │  Headless  │         │
+│ │ (自動実行) │   │ (バンドル) │   │ (動的挿入) │   │ (CI/CD)    │         │
+│ └────────────┘   └────────────┘   └────────────┘   └────────────┘         │
+│       │                │                │                │                 │
+│       ▼                ▼                ▼                ▼                 │
+│  PreToolUse       scripts/         $(!command)      claude -p             │
+│  PostToolUse      フォルダ内の      でシェル出力を   でスクリプト           │
+│  等で呼び出し     Python/Bash       プロンプトに     から呼び出し           │
+│                                    埋め込み                                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-┌─────────────────────────────────────────────────────────────┐
-│  Plugins = 上記すべてをパッケージ化したもの                    │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  my-plugin/                                                 │
-│  ├── commands/    ← Commands を含む                         │
-│  ├── skills/      ← Skills を含む                           │
-│  ├── agents/      ← Subagents を含む                        │
-│  └── hooks/       ← 自動処理を含む                           │
-│                                                             │
-│  → Pluginsは「機能セット」として独立                          │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+### Scripts の4つの利用パターン
+
+| パターン | 連携先 | 実行タイミング | 用途例 |
+|---------|-------|--------------|-------|
+| **Hook Scripts** | Hooks | ライフサイクルイベント | Lint、テスト、セキュリティチェック |
+| **Skill Scripts** | Skills | 必要時に呼び出し | データ処理、API呼び出し、変換処理 |
+| **Command Scripts** | Commands | `$(!...)` で動的実行 | 環境情報取得、ファイル一覧生成 |
+| **CI/CD Scripts** | Headless | 外部から起動 | 自動レビュー、マイグレーション |
+
+---
+
+### パターン1: Hook Scripts（決定論的処理）
+
+Hooksから呼び出されるスクリプト。Claude Codeの動作を**確実に制御**する。
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Hook Scripts の流れ                                │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  Claude Code                                        │
+│      │                                              │
+│      ▼ PreToolUse: Bash(git commit:*)               │
+│  ┌───────────────────────────────┐                  │
+│  │  ./scripts/pre-commit.sh     │                  │
+│  │  ・Lint実行                   │                  │
+│  │  ・テスト実行                 │                  │
+│  │  ・exit 0 (許可) or 2 (拒否)  │                  │
+│  └───────────────────────────────┘                  │
+│      │                                              │
+│      ▼ 結果に応じて続行 or ブロック                  │
+│                                                     │
+└─────────────────────────────────────────────────────┘
+```
+
+**設定例（settings.json）:**
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash(git commit:*)",
+        "command": "./scripts/hooks/pre-commit.sh"
+      },
+      {
+        "matcher": "Write(**/*.ts)",
+        "command": "./scripts/hooks/lint-ts.sh"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash(npm install:*)",
+        "command": "./scripts/hooks/post-install.sh"
+      }
+    ],
+    "Stop": [
+      {
+        "command": "./scripts/hooks/session-summary.sh"
+      }
+    ]
+  }
+}
+```
+
+**スクリプト例（scripts/hooks/pre-commit.sh）:**
+
+```bash
+#!/bin/bash
+# 標準入力からJSON形式でセッション情報を受け取る
+
+# Lint チェック
+npm run lint --silent
+if [ $? -ne 0 ]; then
+    echo "❌ Lint failed. Please fix errors before committing." >&2
+    exit 2  # ブロック
+fi
+
+# 型チェック
+npm run type-check --silent
+if [ $? -ne 0 ]; then
+    echo "❌ Type check failed." >&2
+    exit 2  # ブロック
+fi
+
+# テスト
+npm run test --silent
+if [ $? -ne 0 ]; then
+    echo "❌ Tests failed." >&2
+    exit 2  # ブロック
+fi
+
+echo "✅ All checks passed."
+exit 0  # 許可
 ```
 
 ---
 
-## 3. 各構成要素の違いと使い分け
+### パターン2: Skill Scripts（専門処理のバンドル）
 
-### 一覧表
-
-| 要素 | 呼び出し方 | 用途 | 会社で例えると |
-|-----|----------|------|--------------|
-| **Commands** | `/command名` で手動 | 繰り返し作業の自動化 | 「この書類を作って」という依頼 |
-| **Skills** | 会話内容から自動 | 専門知識の提供 | 必要な時に開く業務マニュアル |
-| **Subagents** | Claudeが自動判断 | 独立した重い作業 | 別部署に仕事を依頼する |
-
-### 詳細な使い分け
+Skillsに同梱するスクリプト。専門知識と一緒に**実行可能なツール**を提供。
 
 ```
-【Commands を使う場面】
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✓ 毎回同じ手順で実行したい作業
-✓ 「/deploy」「/test」のように明示的に実行
-✓ 短時間で完了する単発タスク
+┌─────────────────────────────────────────────────────┐
+│  Skill Scripts の構造                               │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  .claude/skills/data-analysis/                      │
+│  ├── SKILL.md           ← スキル定義（プロンプト）   │
+│  ├── scripts/           ← 実行可能スクリプト        │
+│  │   ├── analyze.py     ← データ分析処理           │
+│  │   ├── visualize.py   ← グラフ生成               │
+│  │   └── export.sh      ← エクスポート処理          │
+│  ├── references/        ← 参照ドキュメント          │
+│  │   └── analysis-guide.md                         │
+│  └── assets/            ← テンプレート等            │
+│      └── report-template.html                      │
+│                                                     │
+└─────────────────────────────────────────────────────┘
+```
 
-例: /fix-issue 1234  → GitHub Issue #1234を修正
+**SKILL.md 例:**
 
-【Skills を使う場面】
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✓ 特定の技術や知識が必要な時に自動適用
-✓ 複数のプロジェクトで再利用したい知識
-✓ 会話の文脈で自動的に呼び出される
+```markdown
+---
+name: data-analysis
+description: データ分析と可視化を行う
+triggers:
+  - データ分析
+  - CSV
+  - グラフ
+  - 統計
+---
 
-例: 「Docker」と言うとDocker専門知識が自動で適用
+# データ分析スキル
 
-【Subagents を使う場面】
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✓ 時間のかかる独立した作業
-✓ メインの会話を邪魔したくない重い処理
-✓ 並列で複数の作業を同時実行
+このスキルはデータ分析タスクで自動的に適用されます。
 
-例: 大量のファイルを分析しながら別の作業を進める
+## 利用可能なスクリプト
+
+以下のスクリプトを使用してデータ処理を行います：
+
+- `scripts/analyze.py` - 統計分析を実行
+- `scripts/visualize.py` - グラフを生成
+- `scripts/export.sh` - 結果をエクスポート
+
+## 使用例
+
+```bash
+python scripts/analyze.py --input data.csv --output report.json
+python scripts/visualize.py --data report.json --chart bar
+```
 ```
 
 ---
 
-# 第2部：推奨フォルダ構成
+### パターン3: Command Scripts（動的コンテンツ）
 
-## 4. GitHub管理を前提とした推奨構成
-
-### グローバル設定（個人のPC内 - Git管理外）
+Commandsのプロンプト内で `$(!command)` を使い、**シェル出力を動的に挿入**。
 
 ```
-~/.claude/                          ← あなたのPC全体に適用
-├── CLAUDE.md                       ← 全プロジェクト共通のルール
-├── settings.json                   ← 全プロジェクト共通の権限設定
-├── commands/                       ← 個人用コマンド
-│   ├── my-shortcuts.md
-│   └── daily-standup.md
-├── skills/                         ← 個人用スキル
-│   └── my-coding-style/
+┌─────────────────────────────────────────────────────┐
+│  Command Scripts の動的挿入                         │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  .claude/commands/status.md                         │
+│  ┌─────────────────────────────────────────────┐   │
+│  │ # プロジェクト状況                           │   │
+│  │                                             │   │
+│  │ ## Git状態                                  │   │
+│  │ $(! git status --short)      ← 動的実行     │   │
+│  │                                             │   │
+│  │ ## 最近のコミット                            │   │
+│  │ $(! git log --oneline -5)    ← 動的実行     │   │
+│  │                                             │   │
+│  │ ## 環境情報                                  │   │
+│  │ $(! ./scripts/env-info.sh)   ← スクリプト   │   │
+│  │                                             │   │
+│  └─────────────────────────────────────────────┘   │
+│           │                                        │
+│           ▼ /project:status 実行時                 │
+│  ┌─────────────────────────────────────────────┐   │
+│  │ # プロジェクト状況                           │   │
+│  │                                             │   │
+│  │ ## Git状態                                  │   │
+│  │ M  src/index.ts              ← 結果が挿入   │   │
+│  │ A  src/new-file.ts                          │   │
+│  │                                             │   │
+│  │ ## 最近のコミット                            │   │
+│  │ abc1234 Fix bug                             │   │
+│  │ def5678 Add feature                         │   │
+│  │ ...                                         │   │
+│  │                                             │   │
+│  │ ## 環境情報                                  │   │
+│  │ Node: v20.10.0                              │   │
+│  │ npm: 10.2.0                                 │   │
+│  │ ...                                         │   │
+│  └─────────────────────────────────────────────┘   │
+│                                                     │
+└─────────────────────────────────────────────────────┘
+```
+
+**Command 例（.claude/commands/deploy-check.md）:**
+
+```markdown
+---
+name: deploy-check
+description: デプロイ前のチェックを実行
+---
+
+# デプロイ前チェック
+
+## 現在のブランチ
+$(! git branch --show-current)
+
+## 未コミットの変更
+$(! git status --porcelain)
+
+## 依存関係の脆弱性
+$(! npm audit --json | jq '.metadata.vulnerabilities')
+
+## ビルドテスト
+$(! npm run build 2>&1 | tail -10)
+
+## 環境変数チェック
+$(! ./scripts/check-env.sh)
+
+上記の情報を確認して、デプロイ可能か判断してください。
+```
+
+---
+
+### パターン4: CI/CD Scripts（Headless連携）
+
+CI/CDパイプラインから Claude Code を呼び出すスクリプト。
+
+```
+┌─────────────────────────────────────────────────────┐
+│  CI/CD Scripts の連携                               │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  GitHub Actions / Jenkins / etc.                    │
+│           │                                         │
+│           ▼                                         │
+│  ┌───────────────────────────────┐                  │
+│  │  ./scripts/ci/review.sh      │                  │
+│  │                              │                  │
+│  │  claude -p "PRをレビュー" \   │                  │
+│  │    --allowedTools Read,Grep  │                  │
+│  │    --output-format json      │                  │
+│  └───────────────────────────────┘                  │
+│           │                                         │
+│           ▼                                         │
+│  ┌───────────────────────────────┐                  │
+│  │  review-result.json          │ → PRコメント投稿  │
+│  └───────────────────────────────┘                  │
+│                                                     │
+└─────────────────────────────────────────────────────┘
+```
+
+**スクリプト例（scripts/ci/review.sh）:**
+
+```bash
+#!/bin/bash
+# PRレビュー自動化スクリプト
+
+PR_NUMBER=$1
+
+# PR差分を取得してClaude Codeでレビュー
+gh pr diff "$PR_NUMBER" | claude -p "
+このPRの変更をレビューしてください。
+以下の観点でチェック：
+1. セキュリティ脆弱性
+2. パフォーマンス問題
+3. コーディング規約違反
+4. テスト不足
+
+JSON形式で出力してください。
+" \
+  --allowedTools Read,Grep,Glob \
+  --output-format json \
+  > /tmp/review-result.json
+
+# 結果をPRにコメント
+cat /tmp/review-result.json | jq -r '.summary' | \
+  gh pr comment "$PR_NUMBER" --body-file -
+```
+
+**GitHub Actions連携（.github/workflows/claude-review.yml）:**
+
+```yaml
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Claude Review
+        run: ./scripts/ci/review.sh ${{ github.event.pull_request.number }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+---
+
+### 推奨フォルダ構成（Scripts含む）
+
+```
+your-project/
+├── .claude/
+│   ├── settings.json
+│   ├── commands/
+│   │   └── deploy-check.md        ← $(!...) でスクリプト呼び出し
+│   ├── skills/
+│   │   └── data-analysis/
+│   │       ├── SKILL.md
+│   │       └── scripts/           ← スキル専用スクリプト
+│   │           ├── analyze.py
+│   │           └── visualize.py
+│   └── agents/
+├── scripts/                        ← プロジェクト共通スクリプト
+│   ├── hooks/                      ← Hooks用スクリプト
+│   │   ├── pre-commit.sh
+│   │   ├── lint-check.sh
+│   │   └── post-install.sh
+│   ├── ci/                         ← CI/CD用スクリプト
+│   │   ├── review.sh
+│   │   ├── security-scan.sh
+│   │   └── deploy.sh
+│   └── utils/                      ← ユーティリティスクリプト
+│       ├── env-info.sh
+│       └── check-dependencies.sh
+├── CLAUDE.md
+└── src/
+```
+
+---
+
+### Scripts 利用時の注意事項
+
+| 観点 | 注意点 |
+|-----|-------|
+| **セキュリティ** | Hooksスクリプトは現在の環境の認証情報で実行される。悪意あるコードに注意 |
+| **実行権限** | スクリプトに実行権限を付与: `chmod +x scripts/*.sh` |
+| **パス** | 相対パスは`.claude/`やプロジェクトルートからの相対パス |
+| **エラーハンドリング** | Hookスクリプトの終了コード: 0=許可, 2=ブロック, その他=エラー |
+| **入出力** | HooksはJSONを標準入力で受け取り、標準エラーにメッセージを出力 |
+
+---
+
+# 第2部：対話層の詳細
+
+## 5. CLAUDE.md の設計指針
+
+### 推奨構成（100〜200行以内）
+
+```markdown
+# プロジェクト概要
+[1-2文でプロジェクトを説明]
+
+## 技術スタック
+- フレームワーク: [例: Next.js 14]
+- 言語: [例: TypeScript]
+- DB: [例: PostgreSQL]
+
+## 開発コマンド
+npm run dev    # 開発サーバー
+npm run build  # ビルド
+npm run test   # テスト
+
+## アーキテクチャ
+[フォルダ構造と責務を簡潔に]
+
+## コーディング規約
+[プロジェクト固有のルールのみ]
+
+## 参照ドキュメント
+詳細は @docs/api.md を参照
+```
+
+### アンチパターン
+
+❌ 一般的なベストプラクティスの列挙（Claudeは知っている）
+❌ 全ファイルの詳細説明（探索できる）
+❌ 200行を超える長文（コンテキストを圧迫）
+
+---
+
+## 6. settings.json 権限設定
+
+### 基本構造
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash(npm:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(docker:*)"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Bash(sudo:*)",
+      "Bash(rm -rf:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)"
+    ]
+  },
+  "additionalDirectories": [
+    "/path/to/shared/libs"
+  ]
+}
+```
+
+### パターンマッチング構文
+
+| パターン | 意味 | 例 |
+|---------|------|-----|
+| `Tool` | ツール全体を許可/拒否 | `Read` |
+| `Tool(exact)` | 完全一致 | `Bash(npm run lint)` |
+| `Tool(prefix:*)` | 前方一致 | `Bash(npm run:*)` |
+| `Tool(**/pattern)` | gitignore形式 | `Read(**/.env)` |
+
+---
+
+## 7. Commands・Skills・Subagents の使い分け
+
+### 判断フローチャート
+
+```
+開始
+  │
+  ├─ ユーザーが明示的に実行したい？
+  │    ├─ YES → Commands（/コマンド名）
+  │    └─ NO ↓
+  │
+  ├─ 専門知識の適用が必要？
+  │    ├─ YES → Skills（自動発動）
+  │    └─ NO ↓
+  │
+  ├─ 重い処理 or 並列実行が必要？
+  │    ├─ YES → Subagents（Task tool）
+  │    └─ NO → 通常の会話で対応
+```
+
+### ファイル配置
+
+```
+.claude/
+├── commands/           ← /project:コマンド名 で呼び出し
+│   ├── deploy.md
+│   └── test-all.md
+├── skills/             ← 自動発動
+│   └── api-design/
 │       └── SKILL.md
-└── agents/                         ← 個人用エージェント
-    └── my-reviewer.md
+└── agents/             ← Task tool経由
+    ├── code-reviewer.md
+    └── security-checker.md
 ```
 
-### プロジェクト設定（Git管理対象）
+### Command テンプレート
 
+```markdown
+---
+name: fix-issue
+description: GitHub Issueを修正する
+---
+
+# Issue修正プロセス
+
+引数: $ARGUMENTS (Issue番号)
+
+1. Issue #$ARGUMENTS の内容を確認
+2. 関連コードを特定
+3. 修正を実装
+4. テストを実行
+5. コミット作成
 ```
-your-project/                       ← プロジェクトルート
-├── .claude/                        ← Claude Code設定フォルダ
-│   ├── settings.json              ← [Git管理] チーム共有の権限設定
-│   ├── settings.local.json        ← [Git除外] 個人の権限設定
-│   ├── commands/                  ← [Git管理] プロジェクト用コマンド
-│   │   ├── deploy.md              ← /project:deploy で呼び出し
-│   │   ├── test.md                ← /project:test で呼び出し
-│   │   └── fix-issue.md           ← /project:fix-issue で呼び出し
-│   ├── skills/                    ← [Git管理] プロジェクト用スキル
-│   │   ├── api-design/
-│   │   │   └── SKILL.md           ← API設計の専門知識
-│   │   └── testing-patterns/
-│   │       └── SKILL.md           ← テストパターンの知識
-│   └── agents/                    ← [Git管理] プロジェクト用エージェント
-│       ├── code-reviewer.md       ← コードレビュー専門
-│       └── security-checker.md    ← セキュリティチェック専門
-├── CLAUDE.md                      ← [Git管理] プロジェクトの主要ルール
-├── CLAUDE.local.md                ← [Git除外] 個人用の追加ルール
-├── .mcp.json                      ← [Git管理] MCP外部連携設定
-├── .gitignore                     ← Git除外設定
-└── src/                           ← ソースコード
+
+### Skill テンプレート
+
+```markdown
+---
+name: react-patterns
+description: Reactのベストプラクティス
+triggers:
+  - React
+  - コンポーネント
+  - hooks
+---
+
+# React開発ガイドライン
+
+## コンポーネント設計
+- 1コンポーネント1責任
+- Props型は必ず定義
+...
+```
+
+### Subagent テンプレート
+
+```markdown
+---
+name: security-checker
+description: セキュリティ脆弱性をチェック
+tools:
+  - Read
+  - Grep
+  - Glob
+model: sonnet
+---
+
+セキュリティエンジニアとして以下をチェック：
+1. SQLインジェクション
+2. XSS
+3. 認証・認可の問題
+4. 機密情報の露出
 ```
 
 ---
 
-## 5. Git管理の方針
+# 第3部：自動化層（Headless Mode・SDK・Hooks）
 
-### 管理対象の判断基準
+## 8. Headless Mode
+
+### 概要
+
+Headless Modeは**非対話型**でClaude Codeを実行する方式です。CI/CD、プリコミットフック、バッチ処理に最適。
+
+### 基本コマンド
+
+```bash
+# 基本形式
+claude -p "プロンプト" [オプション]
+
+# JSONストリーム出力（CI向け）
+claude -p "コードレビューを実行" --output-format stream-json
+
+# 許可ツールを制限
+claude -p "セキュリティレビュー" \
+  --allowedTools Read,Grep,Glob \
+  --max-turns 5
+
+# システムプロンプト追加
+claude -p "PRをレビュー" \
+  --append-system-prompt "セキュリティ観点で厳しくレビュー"
+
+# セッション継続
+claude --continue                    # 最新セッション
+claude --resume <session-id>         # 特定セッション
+```
+
+### 主要オプション一覧
+
+| オプション | 説明 |
+|-----------|------|
+| `-p "prompt"` | ヘッドレスモード有効化 + プロンプト指定 |
+| `--output-format json` | JSON出力 |
+| `--output-format stream-json` | ストリーミングJSON |
+| `--allowedTools Tool1,Tool2` | 許可ツール制限 |
+| `--max-turns N` | 最大ターン数 |
+| `--append-system-prompt` | システムプロンプト追加 |
+| `--continue` | 最新セッション継続 |
+| `--resume <id>` | 特定セッション継続 |
+| `--verbose` | デバッグ出力 |
+
+### CI/CD パターン
+
+```bash
+# PRレビュー（GitHub Actions）
+gh pr diff "$PR_NUMBER" | claude -p \
+  "このPRの変更をレビュー。セキュリティとパフォーマンスに注目。" \
+  --output-format json > review.json
+
+# 大量ファイル処理（ファンアウトパターン）
+for file in $(find src -name "*.ts"); do
+  claude -p "Migrate $file from v1 to v2 API" \
+    --allowedTools Read,Edit \
+    --max-turns 3
+done
+```
+
+---
+
+## 9. Agent SDK（Python/TypeScript）
+
+### 概要
+
+Agent SDKは、Claude Codeと**同じ機能**をプログラムから利用するためのライブラリです。
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  【Git管理する】= チームで共有すべきもの                       │
-├─────────────────────────────────────────────────────────────┤
-│  ✓ .claude/settings.json     - チームの権限ルール             │
-│  ✓ .claude/commands/         - チーム共通コマンド             │
-│  ✓ .claude/skills/           - チーム共通の専門知識           │
-│  ✓ .claude/agents/           - チーム共通エージェント          │
-│  ✓ CLAUDE.md                 - プロジェクトのルール            │
-│  ✓ .mcp.json                 - 外部連携設定                   │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│  【Git管理しない】= 個人設定・機密情報                         │
-├─────────────────────────────────────────────────────────────┤
-│  ✗ .claude/settings.local.json - 個人の権限設定               │
-│  ✗ CLAUDE.local.md             - 個人のルール追加             │
-│  ✗ ~/.claude/ 配下全て          - グローバル設定               │
-│  ✗ .env ファイル                - 機密情報                    │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  Claude Code CLI  ──────────────→  ターミナルでの対話               │
+│       ↓ 同じ機能                                                   │
+│  Agent SDK        ──────────────→  Python/TypeScript アプリ        │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 必須の .gitignore 設定
+### Python SDK
+
+```bash
+pip install claude-agent-sdk
+```
+
+```python
+from claude_agent_sdk import ClaudeSDKClient
+
+# クライアント初期化
+client = ClaudeSDKClient(
+    api_key="your-key",
+    allowed_tools=["Read", "Write", "Bash"]
+)
+
+# クエリ実行（ストリーミング）
+async for message in client.query("このコードをリファクタリングして"):
+    print(message)
+```
+
+### TypeScript SDK
+
+```bash
+npm install @anthropic-ai/claude-agent-sdk
+```
+
+```typescript
+import { ClaudeAgent } from '@anthropic-ai/claude-agent-sdk';
+
+const agent = new ClaudeAgent({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  allowedTools: ['Read', 'Write', 'Bash']
+});
+
+// クエリ実行
+for await (const message of agent.query("テストを追加して")) {
+  console.log(message);
+}
+```
+
+### SDKの主要機能
+
+| 機能 | 説明 |
+|-----|------|
+| `query()` | メインのエージェントループ |
+| `allowed_tools` | 使用可能ツールの制限 |
+| `session_id` | セッション管理・継続 |
+| `model` | 使用モデル指定 |
+| `max_turns` | 最大ターン数 |
+| `system_prompt` | カスタムシステムプロンプト |
+
+---
+
+## 10. Hooks（ライフサイクルフック）
+
+### 概要
+
+Hooksは、Claude Codeの**特定のタイミング**で自動実行されるシェルコマンドです。
+
+### フックイベント一覧
+
+| イベント | タイミング | 用途例 |
+|---------|----------|-------|
+| `PreToolUse` | ツール実行前 | 実行可否の判断 |
+| `PostToolUse` | ツール実行後 | 結果の検証・ログ |
+| `UserPromptSubmit` | ユーザー入力時 | 入力の前処理 |
+| `PermissionRequest` | 権限要求時 | カスタム承認ロジック |
+| `Stop` | エージェント終了時 | クリーンアップ |
+| `SubagentStop` | サブエージェント終了時 | 結果の集約 |
+| `SessionEnd` | セッション終了時 | レポート生成 |
+
+### 設定例（settings.json）
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash(git commit:*)",
+        "command": "./scripts/pre-commit-check.sh"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "command": "npm run lint --fix"
+      }
+    ],
+    "Stop": [
+      {
+        "command": "./scripts/generate-summary.sh"
+      }
+    ]
+  }
+}
+```
+
+### 終了コードの意味
+
+| 終了コード | 意味 |
+|-----------|------|
+| `0` | 成功・許可 |
+| `2` | ブロック（PreToolUseのみ） |
+| その他 | エラー（ユーザーに表示） |
+
+### 実用例：Gitコミット前チェック
+
+```bash
+#!/bin/bash
+# scripts/pre-commit-check.sh
+
+# Lint実行
+npm run lint
+if [ $? -ne 0 ]; then
+  echo "Lint failed. Commit blocked." >&2
+  exit 2  # ブロック
+fi
+
+# テスト実行
+npm run test
+if [ $? -ne 0 ]; then
+  echo "Tests failed. Commit blocked." >&2
+  exit 2  # ブロック
+fi
+
+exit 0  # 許可
+```
+
+---
+
+# 第4部：拡張層（MCP・Plugins）
+
+## 11. MCP（Model Context Protocol）
+
+### 概要
+
+MCPは、Claude Codeを**外部ツール・データソース**に接続するオープン標準プロトコルです。
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         MCP アーキテクチャ                           │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│   Claude Code  ←→  MCP Protocol  ←→  MCP Server  ←→  外部サービス  │
+│                                                                     │
+│   例：                                                              │
+│   ・GitHub MCP → Issue/PR管理                                       │
+│   ・Notion MCP → ドキュメント操作                                    │
+│   ・Sentry MCP → エラー監視                                         │
+│   ・PostgreSQL MCP → データベースクエリ                              │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 設定ファイルの配置
+
+| ファイル | スコープ | Git管理 |
+|---------|--------|---------|
+| `.mcp.json` | プロジェクト | ○ |
+| `.claude/settings.local.json` | プロジェクト（個人） | × |
+| `~/.claude/settings.local.json` | ユーザー | × |
+
+### CLI コマンド
+
+```bash
+# サーバー追加
+claude mcp add <name> --scope user
+claude mcp add --transport http notion https://mcp.notion.com/mcp
+
+# サーバー一覧
+claude mcp list
+
+# サーバー削除
+claude mcp remove <name>
+
+# サーバーテスト
+claude mcp get <name>
+```
+
+### 設定形式（.mcp.json）
+
+```json
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@anthropic-ai/mcp-server-github"],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@anthropic-ai/mcp-server-postgres"],
+      "env": {
+        "DATABASE_URL": "${DATABASE_URL}"
+      }
+    },
+    "notion": {
+      "transport": "http",
+      "url": "https://mcp.notion.com/mcp"
+    }
+  }
+}
+```
+
+### トランスポートタイプ
+
+| タイプ | 用途 | 例 |
+|-------|------|-----|
+| `stdio` | ローカルプロセス | npx起動のサーバー |
+| `http` | リモートサーバー | クラウドサービス |
+| `sse` | Server-Sent Events | リアルタイム更新 |
+
+### 人気のMCPサーバー
+
+| サーバー | 用途 |
+|---------|------|
+| GitHub | Issue/PR管理、コードレビュー |
+| Notion | ドキュメント操作 |
+| Sentry | エラー監視・分析 |
+| PostgreSQL | データベースクエリ |
+| Figma | デザイン連携 |
+| Context7 | リアルタイムドキュメント |
+| Sequential Thinking | 複雑なタスク分解 |
+
+### セキュリティ注意事項
+
+⚠️ **MCPサーバーはAnthropicが検証していません**
+- 信頼できるソースのみ使用
+- 外部コンテンツを取得するサーバーはプロンプトインジェクションリスクあり
+- 機密情報を扱う場合は特に注意
+
+---
+
+## 12. Plugins
+
+### 概要
+
+Pluginsは、Commands・Skills・Subagents・Hooks・MCPを**パッケージ化**して共有する仕組みです。2025年10月にパブリックベータ開始。
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Plugin = Commands + Skills + Agents + Hooks + MCP のパッケージ      │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  my-plugin/                                                         │
+│  ├── commands/       ← スラッシュコマンド                            │
+│  ├── skills/         ← 専門知識                                     │
+│  ├── agents/         ← サブエージェント                              │
+│  ├── hooks/          ← ライフサイクルフック                          │
+│  ├── mcp/            ← MCPサーバー設定                               │
+│  └── plugin.json     ← プラグインメタデータ                          │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### インストール方法
+
+```bash
+# CLI からインストール
+/plugin add <plugin-name>
+
+# 有効化/無効化
+/plugin enable <plugin-name>
+/plugin disable <plugin-name>
+
+# 一覧表示
+/plugin list
+```
+
+### コミュニティレジストリ
+
+- **公式**: `/plugin` コマンドで検索
+- **コミュニティ**: [claude-plugins.dev](https://claude-plugins.dev/)
+
+### 人気のプラグイン
+
+| プラグイン | 用途 |
+|-----------|------|
+| Feature Development | 機能開発ワークフロー |
+| PR Review | 自動コードレビュー |
+| Backend API Design | API設計支援 |
+| Security Audit | セキュリティ監査 |
+
+---
+
+# 第5部：実践ガイド
+
+## 13. 推奨プロジェクト構成
+
+```
+your-project/
+├── .claude/                        # Claude Code設定
+│   ├── settings.json              # [Git管理] チーム権限設定
+│   ├── settings.local.json        # [Git除外] 個人設定
+│   ├── commands/                  # [Git管理] チームコマンド
+│   │   ├── deploy.md
+│   │   └── test-all.md
+│   ├── skills/                    # [Git管理] チームスキル
+│   │   └── api-design/
+│   │       └── SKILL.md
+│   └── agents/                    # [Git管理] チームエージェント
+│       └── code-reviewer.md
+├── .mcp.json                      # [Git管理] MCP設定
+├── CLAUDE.md                      # [Git管理] プロジェクトルール
+├── CLAUDE.local.md                # [Git除外] 個人ルール
+├── .gitignore                     # Git除外設定
+├── .github/
+│   └── workflows/
+│       └── claude-review.yml      # GitHub Actions連携
+└── src/
+```
+
+### 必須 .gitignore
 
 ```gitignore
-# Claude Code - 個人設定（チームに共有しない）
+# Claude Code 個人設定
 .claude/settings.local.json
 CLAUDE.local.md
 
@@ -225,203 +1069,14 @@ credentials.json
 
 ---
 
-## 6. 各ファイルの書き方テンプレート
+## 14. GitHub Actions 連携
 
-### CLAUDE.md（プロジェクトルール）
-
-```markdown
-# プロジェクト概要
-
-このプロジェクトは〇〇のためのWebアプリケーションです。
-
-## コーディング規約
-
-- TypeScriptを使用
-- 関数名はcamelCase
-- コメントは日本語
-
-## フォルダ構造
-
-- src/: ソースコード
-- tests/: テストコード
-- docs/: ドキュメント
-
-## 開発フロー
-
-1. featureブランチを作成
-2. 実装・テスト
-3. PRを作成
-4. レビュー後マージ
-
-## よく使うコマンド
-
-- npm run dev: 開発サーバー起動
-- npm run test: テスト実行
-- npm run build: ビルド
-```
-
-**ポイント**: 100〜200行以内に収める。詳細はdocs/フォルダに分離。
-
-### settings.json（権限設定）
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "Read",
-      "Write",
-      "Edit",
-      "Glob",
-      "Grep",
-      "Bash(npm:*)",
-      "Bash(git:*)",
-      "Bash(pnpm:*)"
-    ],
-    "ask": [
-      "Bash(git push:*)",
-      "Bash(docker:*)"
-    ],
-    "deny": [
-      "Read(**/.env)",
-      "Read(**/*.pem)",
-      "Bash(sudo:*)",
-      "Bash(rm -rf:*)",
-      "Bash(curl:*)",
-      "Bash(wget:*)"
-    ]
-  }
-}
-```
-
-**ルール適用順序**: deny → allow → ask（denyが最優先）
-
-### Command ファイル例 (.claude/commands/deploy.md)
-
-```markdown
----
-name: deploy
-description: 本番環境へのデプロイを実行
----
-
-# デプロイ手順
-
-以下の手順でデプロイを実行してください：
-
-1. テストを実行して全てパスすることを確認
-2. ビルドを実行
-3. デプロイスクリプトを実行
-
-引数: $ARGUMENTS
-
-## 注意事項
-- mainブランチからのみデプロイ可能
-- デプロイ前に必ずチームに連絡
-```
-
-### Skill ファイル例 (.claude/skills/api-design/SKILL.md)
-
-```markdown
----
-name: api-design
-description: REST API設計のベストプラクティス
-triggers:
-  - API
-  - REST
-  - エンドポイント
----
-
-# API設計ガイドライン
-
-## 命名規則
-- リソース名は複数形（users, products）
-- ケバブケースを使用（user-profiles）
-
-## HTTPメソッド
-- GET: 取得
-- POST: 作成
-- PUT: 全体更新
-- PATCH: 部分更新
-- DELETE: 削除
-
-## レスポンス形式
-- 成功: { data: ... }
-- エラー: { error: { code, message } }
-```
-
-### Subagent ファイル例 (.claude/agents/code-reviewer.md)
-
-```markdown
----
-name: code-reviewer
-description: コードレビューを実行する専門エージェント
-tools:
-  - Read
-  - Grep
-  - Glob
-model: sonnet
----
-
-あなたはシニアエンジニアとしてコードレビューを行います。
-
-## レビュー観点
-
-1. **可読性**: 変数名は適切か、コメントは十分か
-2. **保守性**: 将来の変更に対応しやすいか
-3. **セキュリティ**: 脆弱性はないか
-4. **パフォーマンス**: 非効率な処理はないか
-
-## 出力形式
-
-各ファイルについて以下を報告：
-- 問題点（深刻度: 高/中/低）
-- 改善提案
-- 良い点
-```
-
----
-
-# 第3部：運用ガイド
-
-## 7. チーム運用のベストプラクティス
-
-### プロジェクト開始時のセットアップ
-
-```bash
-# 1. プロジェクトディレクトリ作成
-mkdir my-project && cd my-project
-
-# 2. Git初期化
-git init
-
-# 3. Claude Code構成フォルダ作成
-mkdir -p .claude/{commands,skills,agents}
-
-# 4. 基本ファイル作成
-touch CLAUDE.md
-touch .claude/settings.json
-touch .mcp.json
-
-# 5. .gitignore設定
-cat << 'EOF' >> .gitignore
-# Claude Code個人設定
-.claude/settings.local.json
-CLAUDE.local.md
-
-# 機密情報
-.env
-.env.*
-EOF
-
-# 6. 初期コミット
-git add .
-git commit -m "Initial Claude Code setup"
-```
-
-### GitHub Actionsとの連携
+### PR自動レビュー
 
 ```yaml
 # .github/workflows/claude-review.yml
 name: Claude Code Review
+
 on:
   pull_request:
     types: [opened, synchronize]
@@ -431,123 +1086,159 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Claude Code Review
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          task: "このPRの変更をレビューしてください"
+        run: |
+          gh pr diff ${{ github.event.pull_request.number }} | \
+          claude -p "このPRをレビューしてください" \
+            --output-format json \
+            --allowedTools Read,Grep,Glob \
+            > review.json
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post Review Comment
+        run: |
+          # review.jsonからコメントを生成してPRに投稿
+          cat review.json | jq -r '.review' | \
+          gh pr comment ${{ github.event.pull_request.number }} --body-file -
+```
+
+### セキュリティスキャン
+
+```yaml
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Security Analysis
+        run: |
+          claude -p "セキュリティ脆弱性をスキャン" \
+            --allowedTools Read,Grep,Glob \
+            --append-system-prompt "OWASP Top 10に基づいてチェック" \
+            --output-format json > security-report.json
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
 ---
 
-## 8. セキュリティガイドライン
+## 15. セキュリティベストプラクティス
 
-### 最小権限の原則
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Claude Codeへの権限は「必要最小限」に                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  【絶対にdenyすべき】                                        │
-│  ✗ .env ファイルの読み取り                                   │
-│  ✗ sudo コマンドの実行                                       │
-│  ✗ 外部への通信（curl, wget）                                │
-│  ✗ SSH接続                                                  │
-│                                                             │
-│  【askにすべき（確認後許可）】                                 │
-│  △ git push（意図しないプッシュ防止）                         │
-│  △ docker run（コンテナ起動）                                 │
-│  △ npm publish（パッケージ公開）                              │
-│                                                             │
-│  【allowで良い】                                              │
-│  ○ ファイルの読み書き編集                                     │
-│  ○ git status, git diff などの参照系                         │
-│  ○ npm install, npm run などの開発系                          │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 9. よくある質問（FAQ）
-
-### Q1: グローバル設定とプロジェクト設定が矛盾したらどうなる？
-
-**A**: より具体的な設定（プロジェクト）が優先されます。
+### 権限の最小化原則
 
 ```
-グローバル: 「コメントは英語で」
-プロジェクト: 「コメントは日本語で」
-→ プロジェクトの「日本語」が適用される
+┌─────────────────────────────────────────────────────────────────────┐
+│  権限設定のベストプラクティス                                         │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  【deny（必須）】                                                    │
+│  ✗ .env ファイル読み取り    → Read(**/.env), Read(**/.env.*)       │
+│  ✗ 秘密鍵ファイル           → Read(**/*.pem), Read(**/*.key)       │
+│  ✗ sudo 実行               → Bash(sudo:*)                          │
+│  ✗ 危険な削除               → Bash(rm -rf:*)                       │
+│  ✗ 外部通信                 → Bash(curl:*), Bash(wget:*)           │
+│                                                                     │
+│  【ask（推奨）】                                                    │
+│  △ git push                → Bash(git push:*)                      │
+│  △ git commit              → Bash(git commit:*)                    │
+│  △ docker 操作             → Bash(docker:*)                        │
+│  △ npm publish             → Bash(npm publish:*)                   │
+│                                                                     │
+│  【allow（安全）】                                                   │
+│  ○ ファイル読み書き         → Read, Write, Edit                     │
+│  ○ 検索                    → Glob, Grep                            │
+│  ○ 参照系git               → Bash(git status:*), Bash(git diff:*)  │
+│  ○ 開発コマンド             → Bash(npm run:*), Bash(pnpm:*)        │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Q2: SkillsとSubagentsの違いがわからない
+### CI/CD での権限制限
 
-**A**:
-- **Skills** = 知識・ノウハウ（本を読むようなもの）
-- **Subagents** = 実際に作業する人（別の社員に仕事を頼む）
+```bash
+# 読み取り専用モード（レビュー用）
+claude -p "コードレビュー" \
+  --allowedTools Read,Grep,Glob
 
-```
-「Dockerのベストプラクティスを教えて」→ Skills
-「この50ファイルを全部レビューして」→ Subagents
-```
+# 書き込み許可（マイグレーション用）
+claude -p "v2 APIにマイグレーション" \
+  --allowedTools Read,Write,Edit,Bash
 
-### Q3: Commandsは何個まで作れる？
-
-**A**: 制限はありませんが、よく使う10〜20個程度に絞ることを推奨。多すぎると管理が大変になります。
-
-### Q4: CLAUDE.mdが長くなりすぎた場合は？
-
-**A**: 100〜200行を超えたら分割しましょう。
-
-```
-CLAUDE.md          ← 概要・重要事項のみ（100行以内）
-docs/coding.md     ← 詳細なコーディング規約
-docs/workflow.md   ← 詳細なワークフロー
-docs/api.md        ← API仕様
-
-CLAUDE.md内で参照: @docs/coding.md
+# 本番昇格は慎重に
+# ✓ 数ヶ月の安定運用後に書き込み権限を付与
+# ✓ 段階的に権限を拡大
 ```
 
 ---
 
-## 10. チェックリスト
+## 16. トラブルシューティング
 
-### プロジェクト開始時
+### よくある問題と解決策
 
-- [ ] `.claude/` フォルダを作成
-- [ ] `CLAUDE.md` を作成（プロジェクト概要・規約）
-- [ ] `.claude/settings.json` を作成（権限設定）
-- [ ] `.gitignore` に個人設定ファイルを追加
-- [ ] チームメンバーに構成を共有
+| 問題 | 原因 | 解決策 |
+|-----|------|-------|
+| 権限エラーが出る | settings.json の設定ミス | denyルールを確認 |
+| MCPサーバー接続失敗 | 環境変数未設定 | `.env` に API キー設定 |
+| Subagentが動かない | ツール制限 | `tools:` で必要なツールを許可 |
+| コンテキスト超過 | CLAUDE.md が長すぎ | 100-200行に圧縮 |
+| Hookが実行されない | matcher パターンミス | 正確なパターンを確認 |
 
-### 新しいコマンド追加時
+### デバッグモード
 
-- [ ] `.claude/commands/` にファイル作成
-- [ ] frontmatter（name, description）を記載
-- [ ] チームにPRでレビュー依頼
-- [ ] ドキュメントに追加
+```bash
+# 詳細ログ出力
+claude -p "タスク" --verbose
 
-### 新しいスキル追加時
+# セッション情報確認
+claude /sessions
 
-- [ ] `.claude/skills/スキル名/` フォルダ作成
-- [ ] `SKILL.md` を作成
-- [ ] triggers（発動条件）を適切に設定
-- [ ] チームにPRでレビュー依頼
+# 設定確認
+claude /settings
+```
 
 ---
 
 ## 参考リンク
 
-- [Claude Code 公式ドキュメント](https://code.claude.com/docs)
-- [CLAUDE.md の使い方（公式）](https://claude.com/blog/using-claude-md-files)
-- [Claude Code ベストプラクティス（Anthropic）](https://www.anthropic.com/engineering/claude-code-best-practices)
-- [Skills vs Commands vs Subagents の違い](https://www.youngleaders.tech/p/claude-skills-commands-subagents-plugins)
-- [Claude Code 設定ガイド](https://code.claude.com/docs/en/settings)
-- [GitHub連携ガイド](https://support.claude.com/en/articles/10167454-using-the-github-integration)
-- [セキュリティベストプラクティス](https://www.backslash.security/blog/claude-code-security-best-practices)
+### 公式ドキュメント
+- [Claude Code Docs](https://code.claude.com/docs)
+- [Agent SDK Overview](https://platform.claude.com/docs/en/agent-sdk/overview)
+- [MCP公式](https://modelcontextprotocol.io/)
+
+### Headless Mode / SDK
+- [Headless Mode 公式](https://code.claude.com/docs/en/headless)
+- [Building Agents with Claude Agent SDK](https://www.anthropic.com/engineering/building-agents-with-the-claude-agent-sdk)
+- [Agent SDK Python](https://github.com/anthropics/claude-agent-sdk-python)
+- [Agent SDK TypeScript](https://github.com/anthropics/claude-agent-sdk-typescript)
+
+### MCP
+- [MCP 公式ドキュメント](https://code.claude.com/docs/en/mcp)
+- [MCP Server Setup Guide](https://mcpcat.io/guides/adding-an-mcp-server-to-claude-code/)
+- [Context7 MCP](https://github.com/upstash/context7)
+
+### Hooks / Plugins / Scripts
+- [Hooks Reference](https://code.claude.com/docs/en/hooks)
+- [Hooks Guide](https://code.claude.com/docs/en/hooks-guide)
+- [Plugins 公式ブログ](https://claude.com/blog/claude-code-plugins)
+- [Claude Plugins Registry](https://claude-plugins.dev/)
+- [Claude Code and Bash Scripts](https://stevekinney.com/courses/ai-development/claude-code-and-bash-scripts)
+- [Hooks Workflow Automation](https://www.gend.co/blog/configure-claude-code-hooks-automation)
+
+### ベストプラクティス
+- [Claude Code Best Practices (Anthropic)](https://www.anthropic.com/engineering/claude-code-best-practices)
+- [Security Best Practices](https://www.backslash.security/blog/claude-code-security-best-practices)
+- [Permissions Guide](https://www.eesel.ai/blog/claude-code-permissions)
 
 ---
 
-*作成日: 2026-01-12*
+*作成日: 2026-01-13 | 最終更新: 2026-01-13*
