@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>clasp 利用マニュアル（設定後の使い方 / 文系向け）</title>
+    <style>
+      :root {
+        /* Light theme (white-based) */
+        --bg: #ffffff;
+        --panel: #ffffff;
+        --text: #111827; /* gray-900 */
+        --muted: #4b5563; /* gray-600 */
+        --accent: #2563eb; /* blue-600 */
+        --border: rgba(17, 24, 39, 0.12);
+        --code-bg: rgba(17, 24, 39, 0.04);
+      }
+      body {
+        margin: 0;
+        background: linear-gradient(180deg, var(--bg), #f8fafc);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP",
+          "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+        line-height: 1.7;
+      }
+      .wrap {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 32px 18px 64px;
+      }
+      header {
+        background: rgba(37, 99, 235, 0.04);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 18px 18px;
+        margin-bottom: 18px;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0 0 8px;
+      }
+      .lead {
+        margin: 0;
+        color: var(--muted);
+      }
+      nav {
+        background: rgba(17, 24, 39, 0.02);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px 16px;
+        margin: 14px 0 22px;
+      }
+      nav a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      nav a:hover {
+        text-decoration: underline;
+      }
+      section {
+        background: #ffffff;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 18px 18px;
+        margin: 14px 0;
+      }
+      h2 {
+        font-size: 18px;
+        margin: 0 0 10px;
+      }
+      h3 {
+        font-size: 16px;
+        margin: 16px 0 8px;
+      }
+      code,
+      pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+      }
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px 12px;
+        overflow-x: auto;
+      }
+      ul {
+        margin: 8px 0 8px 18px;
+      }
+      .tip {
+        color: var(--muted);
+        border-left: 3px solid var(--accent);
+        padding: 8px 12px;
+        margin: 10px 0;
+        background: rgba(37, 99, 235, 0.07);
+        border-radius: 10px;
+      }
+      .kicker {
+        display: inline-block;
+        font-size: 12px;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: rgba(37, 99, 235, 0.08);
+        border: 1px solid rgba(37, 99, 235, 0.18);
+        color: var(--muted);
+        margin-bottom: 10px;
+      }
+      footer {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="kicker">GAS × ローカル編集</div>
+        <h1>clasp 利用マニュアル（設定後の使い方 / 文系向け）</h1>
+        <p class="lead">
+          「clasp（クラスプ）で Google Apps Script（GAS）をローカル編集し、Google
+          に反映する」ための運用マニュアルです。コマンドはコピペでOK。
+        </p>
+      </header>
+
+      <nav>
+        <strong>目次</strong>
+        <ul>
+          <li><a href="#sec0">0. まず結論（いちばん大事）</a></li>
+          <li><a href="#sec1">1. 利用シーン別：何をすればいい？</a></li>
+          <li><a href="#sec2">2. よく使うコマンド早見表</a></li>
+          <li><a href="#sec3">3. 典型的な作業フロー</a></li>
+          <li><a href="#sec35">3.5 Cursorで「要件→実装」してclaspで反映</a></li>
+          <li><a href="#sec36">3.6 GitHubでバージョン管理</a></li>
+          <li><a href="#sec4">4. UI（ダイアログ/サイドバー）</a></li>
+          <li><a href="#sec5">5. フォルダ構成のおすすめ</a></li>
+          <li><a href="#sec6">6. よくある詰まりどころ</a></li>
+          <li><a href="#sec7">7. 用語ミニ辞典</a></li>
+        </ul>
+      </nav>
+
+      <section id="sec0">
+        <h2>0. まず結論（いちばん大事）</h2>
+        <ul>
+          <li>
+            <strong>`clasp: command not found` の理由</strong>：`@google/clasp`
+            を<strong>ローカル</strong>に入れただけで、`clasp` が PATH にいないため。
+          </li>
+          <li>
+            <strong>推奨</strong>：どこでも確実に動くので、基本は
+            <strong>`npx clasp ...`</strong> を使う。
+          </li>
+          <li>
+            <strong>いつ `-g` が必要？</strong>：`npx` なしで `clasp` と打ちたいなら
+            グローバルに入れる（`npm i -g @google/clasp`）。
+          </li>
+        </ul>
+      </section>
+
+      <section id="sec1">
+        <h2>1. 利用シーン別：何をすればいい？</h2>
+
+        <h3>シーンA：初回（ログインしてローカルから触れるようにする）</h3>
+        <p>1) clasp が動くか確認</p>
+        <pre><code>npx clasp -v</code></pre>
+        <p>2) Google アカウントでログイン（ブラウザ認証）</p>
+        <pre><code>npx clasp login</code></pre>
+        <p>3) ログインできたか確認（任意）</p>
+        <pre><code>npx clasp whoami</code></pre>
+        <div class="tip">
+          メモ：<strong>WSL と Windows（PowerShell）は別環境</strong>です。WSLで作業するなら、WSLで
+          <code>npx clasp ...</code> を実行してください。
+        </div>
+
+        <h3>シーンB：既にあるGASのプロジェクトをローカルに持ってくる（clone）</h3>
+        <p>
+          1) GASエディタで <strong>プロジェクト設定 → スクリプトID</strong> をコピー
+        </p>
+        <div class="tip">
+          注意（ハマりがち）：<code>https://script.google.com/u/0/home/projects/.../edit</code> の
+          <strong>/projects/ の後ろ</strong>に出てくるIDは、ダッシュボード用の「プロジェクトID」のことがあります。<br />
+          <strong>clasp clone に必要なのは基本的に「スクリプトID（Script ID）」</strong>です。<br />
+          いちばん確実なのは「プロジェクト設定 → スクリプトID」をコピーすること。<br />
+          もう1つの目印：エディタURLが <code>https://script.google.com/d/&lt;スクリプトID&gt;/edit</code> の形なら、
+          <code>/d/</code> の後ろがスクリプトIDです。
+        </div>
+        <p>2) 作業用フォルダで clone</p>
+        <pre><code>mkdir gas-project
+cd gas-project
+npx clasp clone &lt;SCRIPT_ID&gt;</code></pre>
+        <p>
+          3) ローカルにファイルが落ちてきたらOK（<code>appsscript.json</code> など）
+        </p>
+
+        <h3>シーンC：ローカルで編集 → Google（GAS）に反映（push）</h3>
+        <p>1) ローカルで編集（例：<code>Code.gs</code> を直す）</p>
+        <p>2) 反映</p>
+        <pre><code>npx clasp push</code></pre>
+
+        <h3>シーンD：Google（GAS）側の変更をローカルに持ってくる（pull）</h3>
+        <pre><code>npx clasp pull</code></pre>
+        <div class="tip">
+          チーム運用では「どっちで編集するか」を決めないと衝突します。基本は「ローカル編集→push」を推奨。
+        </div>
+
+        <h3>シーンE：実行して動作確認したい（run）</h3>
+        <pre><code>npx clasp run &lt;関数名&gt;</code></pre>
+        <pre><code>npx clasp run main</code></pre>
+        <div class="tip">失敗したらまず <code>npx clasp logs</code> でログ確認が最短です。</div>
+
+        <h3>シーンF：Webアプリ / アドオン等として「リリース（デプロイ）」したい</h3>
+        <p>1) バージョンを作る</p>
+        <pre><code>npx clasp version "v1 初回リリース"</code></pre>
+        <p>2) デプロイを作る（新規）</p>
+        <pre><code>npx clasp deploy --description "v1"</code></pre>
+        <p>3) 既存デプロイを確認</p>
+        <pre><code>npx clasp deployments</code></pre>
+
+        <h3>シーンG：ブラウザでGASを開きたい（open）</h3>
+        <pre><code>npx clasp open</code></pre>
+        <p>スプレッドシート（コンテナバインド）の場合</p>
+        <pre><code>npx clasp open --spreadsheet</code></pre>
+
+        <h3>シーンH：ここ（ローカル）から新規GASプロジェクトを作って、Google側に連携（create → push）</h3>
+        <p>「Google側で先に作らずに、ローカルから新規プロジェクトを作って紐付ける」こともできます。</p>
+
+        <p><strong>H-1. まっさらなGAS（単体プロジェクト）を新規作成したい</strong></p>
+        <pre><code>mkdir my-new-gas
+cd my-new-gas
+npx clasp create --type standalone --title "My New GAS"</code></pre>
+        <div class="tip">
+          作成が成功すると、このフォルダに <code>.clasp.json</code> ができて「どのGASに繋がっているか」が記録されます。
+        </div>
+
+        <p><strong>H-2. スプレッドシートに紐づくGAS（コンテナバインド）を作りたい</strong></p>
+        <p>先にスプレッドシートを用意して、そのファイルID（URLの <code>/d/</code> の後ろ）を使います。</p>
+        <pre><code>mkdir sheet-gas
+cd sheet-gas
+npx clasp create --type sheets --title "Sheet GAS" --parentId "&lt;スプレッドシートのファイルID&gt;"</code></pre>
+
+        <p><strong>H-3. コードを反映（push）</strong></p>
+        <pre><code>npx clasp push</code></pre>
+        <div class="tip">
+          もし <code>push</code> でエラーが出る場合、初回は「Apps Script API の有効化」が必要なことがあります。エラーメッセージを貼ってください。
+        </div>
+      </section>
+
+      <section id="sec2">
+        <h2>2. よく使うコマンド早見表（これだけ覚えればOK）</h2>
+        <ul>
+          <li><strong>ログイン</strong>: <code>npx clasp login</code></li>
+          <li><strong>既存プロジェクト取得</strong>: <code>npx clasp clone &lt;SCRIPT_ID&gt;</code></li>
+          <li><strong>新規プロジェクト作成</strong>: <code>npx clasp create ...</code></li>
+          <li><strong>Googleへ反映</strong>: <code>npx clasp push</code></li>
+          <li><strong>Googleから取得</strong>: <code>npx clasp pull</code></li>
+          <li><strong>関数実行</strong>: <code>npx clasp run &lt;関数名&gt;</code></li>
+          <li><strong>ログ確認</strong>: <code>npx clasp logs</code></li>
+          <li><strong>ブラウザで開く</strong>: <code>npx clasp open</code></li>
+          <li><strong>デプロイ確認</strong>: <code>npx clasp deployments</code></li>
+        </ul>
+      </section>
+
+      <section id="sec3">
+        <h2>3. 典型的な作業フロー（迷ったらこれ）</h2>
+        <ol>
+          <li><code>npx clasp pull</code>（最新化）</li>
+          <li>ローカル編集</li>
+          <li><code>npx clasp push</code>（反映）</li>
+          <li><code>npx clasp open</code> → ブラウザで確認</li>
+          <li>失敗したら <code>npx clasp logs</code></li>
+        </ol>
+      </section>
+
+      <section id="sec35">
+        <h2>3.5 Cursorで「要件→実装」してclaspで反映する手順（おすすめ運用）</h2>
+        <p>
+          「何を作るか（要件）」を Cursor で固めてから、GAS（clasp）に反映する一連の流れです。迷ったらこの順で進めると手戻りが減ります。
+        </p>
+
+        <h3>3.5-1. 事前準備（最初だけ）</h3>
+        <p>作業フォルダ（例：<code>gas-project/</code>）で最新化します。</p>
+        <pre><code>cd /mnt/c/Users/西田貴彦/Documents/Cursor/P_Unico/gas-project
+npx clasp pull</code></pre>
+
+        <h3>3.5-2. Cursorで「要件（何を作るか）」を作る</h3>
+        <p>Cursorに以下を貼って、要件を固めます（コピペ用テンプレ）。</p>
+        <pre><code>目的（何のために）:
+やりたいこと（ユーザー視点で）:
+対象（例：スプレッドシート名 / シート名 / データ範囲）:
+入力（何を受け取る）:
+出力（どうなると成功）:
+ルール（計算式・条件分岐・例外）:
+失敗時（エラー表示、ログ、リトライ）:
+セキュリティ（APIキー、権限、共有範囲）:
+テスト（最低3ケース）:</code></pre>
+        <div class="tip">
+          ポイント：「入力→処理→出力」を文章で書ければ、文系でも十分に要件として成立します。
+        </div>
+
+        <h3>3.5-3. Cursorで「実装タスク」に落とす（やることを分解）</h3>
+        <p>要件が固まったら、Cursorに「やることリスト（タスク）」を作らせます。</p>
+        <pre><code>上の要件を、GASで実装するためのタスクに分解して。ファイル単位（.gs/.html）と関数名まで提案して。</code></pre>
+
+        <h3>3.5-4. Cursorで実装（.gs/.html を編集）</h3>
+        <ul>
+          <li><strong>GASのサーバー側</strong>：<code>.gs</code>（例：<code>コード.js</code> / <code>Code.gs</code>）</li>
+          <li><strong>UI側</strong>：<code>.html</code>（例：<code>sidebar.html</code>）</li>
+        </ul>
+        <div class="tip">コツ：まず「動く最小」→ 次に「見た目/例外」を追加、の順が最速です。</div>
+
+        <h3>3.5-5. claspで反映（push）</h3>
+        <pre><code>npx clasp push</code></pre>
+
+        <h3>3.5-6. GAS側で確認（open / run / logs）</h3>
+        <p>ブラウザで開く</p>
+        <pre><code>npx clasp open</code></pre>
+        <p>関数を実行（例：<code>main</code>）</p>
+        <pre><code>npx clasp run main</code></pre>
+        <p>ログを見る</p>
+        <pre><code>npx clasp logs</code></pre>
+
+        <h3>3.5-7. 仕上げ（共有/リリースが必要なら）</h3>
+        <p>Webアプリ等で公開するなら「version → deploy」を使います（シーンF参照）。</p>
+
+        <h3>3.5-8. 最終チェックリスト</h3>
+        <ul>
+          <li>[ ] <code>npx clasp pull</code> で最新化した</li>
+          <li>[ ] 要件テンプレを埋めた（入力/出力/ルール/例外）</li>
+          <li>[ ] タスク分解して、やることが見えている</li>
+          <li>[ ] まず最小機能が動く状態にした</li>
+          <li>[ ] <code>npx clasp push</code> で反映した</li>
+          <li>[ ] <code>npx clasp open</code> でブラウザ確認した</li>
+          <li>[ ] 問題があれば <code>npx clasp logs</code> を見た</li>
+        </ul>
+      </section>
+
+      <section id="sec36">
+        <h2>3.6 GitHubでバージョン管理するSTEP（おすすめ運用）</h2>
+        <p>
+          GASはブラウザ上でも編集できますが、<strong>GitHubで履歴管理</strong>すると「いつ/誰が/何を」変えたかが明確になり、事故が減ります。
+        </p>
+
+        <h3>3.6-1. 大前提（絶対守る）</h3>
+        <ul>
+          <li>
+            <strong>認証情報はコミットしない</strong>：<code>~/.clasprc.json</code>（ログイン情報）はPCのホーム配下に保存されます（プロジェクト内ではありません）。
+            ただしプロジェクト内の <code>.clasp.json</code> は「どのスクリプトに紐づくか」だけなので通常コミットOKです。
+          </li>
+          <li><strong>APIキー/トークンはコードに直書きしない</strong>（必要なら Script Properties 等へ）</li>
+        </ul>
+
+        <h3>3.6-2. Git初期化（最初だけ）</h3>
+        <pre><code>cd /mnt/c/Users/西田貴彦/Documents/Cursor/P_Unico/gas-project
+git init</code></pre>
+
+        <h3>3.6-3. <code>.gitignore</code> を用意（最初だけ）</h3>
+        <pre><code># Node / npm
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# clasp / secrets
+# ※ .clasp.json は通常コミットOK（scriptIdが入るだけ）
+.clasprc.json
+*.env</code></pre>
+
+        <h3>3.6-4. 最初のコミット（最初だけ）</h3>
+        <pre><code>git add -A
+git commit -m "init: clasp project"</code></pre>
+
+        <h3>3.6-5. GitHubにリポジトリ作成 → push（最初だけ）</h3>
+        <pre><code>git remote add origin &lt;GitHubのリポジトリURL&gt;
+git branch -M main
+git push -u origin main</code></pre>
+
+        <h3>3.6-6. 日々の運用（これだけでOK）</h3>
+        <p><strong>推奨ルール</strong>：「pull → 実装 → commit → push（GitHub） → clasp push（GAS反映）」</p>
+        <pre><code># 1) 最新化
+npx clasp pull
+
+# 2) 編集（Cursorで実装）
+
+# 3) Gitに保存（履歴を残す）
+git add -A
+git commit -m "feat: ○○を追加"
+git push
+
+# 4) GASへ反映
+npx clasp push</code></pre>
+        <div class="tip">ポイント：GASへ反映（clasp push）の前に、先にGitHubへコミットしておくとロールバックが簡単です。</div>
+
+        <h3>3.6-7. チーム運用（ブランチ運用の最小形）</h3>
+        <ul>
+          <li><strong>main</strong>：動く状態だけ置く（本番相当）</li>
+          <li><strong>featureブランチ</strong>：機能追加・修正はブランチで作業</li>
+          <li><strong>PR</strong>：mainへはPull Request経由でマージ</li>
+        </ul>
+        <pre><code>git checkout -b feat/sidebar-ui
+# 編集 → commit → push
+git push -u origin feat/sidebar-ui</code></pre>
+
+        <h3>3.6-8. 事故ったとき（戻し方の基本）</h3>
+        <ul>
+          <li>直前に戻したい：<code>git log</code> → <code>git revert &lt;commit&gt;</code>（履歴を残して戻すのが安全）</li>
+          <li>ローカルが壊れた：GitHubから <code>git clone</code> し直して <code>npx clasp push</code> で復旧</li>
+        </ul>
+      </section>
+
+      <section id="sec4">
+        <h2>4. UI（ダイアログ/サイドバー）を触るときの考え方（超ざっくり）</h2>
+        <ul>
+          <li><strong>ダイアログUI</strong>：ボタンを押したときだけ出す一時画面（作業向き）</li>
+          <li><strong>サイドバーUI</strong>：右側に常時表示できる（継続的操作向き）</li>
+        </ul>
+        <div class="tip">
+          claspは「ローカルのHTML/GSファイル」をまとめてGASに反映するだけなので、UIの種類が違っても基本フロー（編集→push）は同じです。
+        </div>
+      </section>
+
+      <section id="sec5">
+        <h2>5. フォルダ構成のおすすめ（チーム/長期運用向け）</h2>
+        <p>プロジェクト直下が散らかるのを避けたい場合、専用フォルダ（例：<code>gas/</code>）を切るのがおすすめです。</p>
+        <pre><code>gas/
+  appsscript.json
+  Code.gs
+  UI.html
+  ...</code></pre>
+        <p>
+          この場合、<code>.clasp.json</code> の <code>rootDir</code> を <code>gas</code> に設定します。
+        </p>
+      </section>
+
+      <section id="sec6">
+        <h2>6. よくある詰まりどころ（ここを見ると大体解決します）</h2>
+
+        <h3>6-1. <code>clasp: command not found</code></h3>
+        <p>原因：ローカルインストールで PATH にいない。</p>
+        <p>解決（まずはこれでOK）</p>
+        <pre><code>npx clasp -v</code></pre>
+        <p>どうしても <code>clasp</code> 直打ちしたい場合</p>
+        <pre><code>npm install -g @google/clasp
+clasp -v</code></pre>
+
+        <h3>6-2. ログインできない / 認証が進まない</h3>
+        <p>
+          ブラウザが立ち上がらない場合、WSL環境だと詰まることがあります。そのときは
+          Windows側（PowerShell）で <code>clasp login</code> に切り替えるのも有効です。
+        </p>
+
+        <h3>6-3. <code>Script not found</code> / IDが違う</h3>
+        <p>
+          Script ID が間違っている可能性が高いです。GASエディタの
+          <strong>プロジェクト設定 → スクリプトID</strong> を再確認してください。
+        </p>
+
+        <h3>6-4. pushしたのに反映されない気がする</h3>
+        <ul>
+          <li>ブラウザ側のキャッシュの可能性：リロード</li>
+          <li>別ディレクトリで作業している可能性：<code>.clasp.json</code> を確認</li>
+        </ul>
+      </section>
+
+      <section id="sec7">
+        <h2>7. 補足：用語ミニ辞典（文系向け）</h2>
+        <ul>
+          <li><strong>GAS</strong>：Googleの中で動くスクリプト（ExcelマクロのGoogle版のイメージ）</li>
+          <li><strong>clasp</strong>：GASをローカルファイルとして扱うための道具</li>
+          <li><strong>push</strong>：ローカル → Google（反映）</li>
+          <li><strong>pull</strong>：Google → ローカル（取得）</li>
+          <li><strong>Script ID</strong>：プロジェクトを特定するID（住所みたいなもの）</li>
+        </ul>
+      </section>
+
+      <footer>
+        <p>保存先：<code>04_gas連携/01_clasp_利用マニュアル.html</code></p>
+      </footer>
+    </div>
+  </body>
+</html>
+
